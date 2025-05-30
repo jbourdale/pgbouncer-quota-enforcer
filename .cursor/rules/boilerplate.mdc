@@ -1,0 +1,127 @@
+---
+description: PgBouncer Quota Service - Development Guidelines
+globs:
+alwaysApply: true
+---
+
+# PgBouncer Quota Service - Development Guidelines
+
+## Project Context
+This is a high-performance quota enforcement service that processes PostgreSQL query events to track and enforce database usage quotas. The service receives query events asynchronously, analyzes query costs, and makes enforcement decisions without impacting the critical database query path.
+
+## Architecture Requirements
+
+### Hexagonal Architecture (Ports & Adapters)
+- **ALWAYS** follow hexagonal architecture principles
+- **Domain Layer**: Pure business logic, no external dependencies
+  - Entities: User, Query, Quota, QueryCost, EnforcementAction, etc.
+  - Value Objects: QueryHash, Cost, UserID, ConnectionCount, etc.
+  - Domain Services: QuotaCalculator, QueryNormalizer, EnforcementDecider
+- **Application Layer**: Use cases and orchestration
+  - Services: QuotaService, QueryAnalyzer, CostEstimator, EnforcementService
+  - Commands/Queries: ProcessQueryEvent, CheckQuotaStatus, EnforceQuota
+- **Infrastructure Layer**: External adapters
+  - Repositories: Redis cache, PostgreSQL for EXPLAIN queries
+  - External Services: PgBouncer admin API client
+  - Protocol: PostgreSQL wire protocol parser
+
+### Directory Structure
+```
+cmd/
+├── main.go # Entry point
+├── internal/ # CLI commands
+├──── app/ # Application services
+├────── domain/ # Domain entities, value objects, interfaces
+├────── infrastructure/ # External adapters, implementations
+├────── interfaces/ # Primary adapters (HTTP API, CLI commands)
+├──── infra/ # Infrastructure services
+├────── ports/ # Interfaces implementations
+├────── ... # Infrastructure services
+├── pkg/ # Shared utilities, errors
+```
+
+## Code Quality Standards
+
+### Testing Requirements
+- **MANDATORY**: Every new function MUST have corresponding unit tests
+- Use table-driven tests for multiple scenarios
+- Mock external dependencies using interfaces
+- Aim for >90% test coverage
+- Test files should be in same package with `_test.go` suffix
+- Use testify/assert and testify/mock for testing
+
+### Function and Method Design
+- Keep functions small and focused (single responsibility)
+- Use dependency injection for external dependencies
+- Return errors explicitly, don't panic
+- Use context.Context for cancellation and timeouts
+- Prefer composition over inheritance
+
+### Performance Considerations
+This is a HIGH-PERFORMANCE quota service. Always consider:
+- Batch processing (1000 events/batch as per requirements)
+- Zero-copy parsing of PostgreSQL wire protocol
+- Memory pooling for frequent allocations
+- Multi-level caching (L1 local memory, L2 Redis)
+- Async background processing for EXPLAIN queries
+- Efficient data structures for quota tracking
+
+## Communication Guidelines
+
+### When to Ask for Clarification
+**ALWAYS ask for more details when:**
+- Quota calculation business rules are unclear
+- Query cost estimation strategies need specification
+- User identification/resolution logic is ambiguous
+- Enforcement thresholds and policies are not defined
+- Caching strategies and TTL values need clarification
+- Error handling for external service failures is undefined
+- Performance requirements (throughput, latency) are missing
+
+### What NOT to Extrapolate
+- Never assume quota limit values or calculation formulas
+- Never implement specific enforcement actions without specifications
+- Never choose Redis data structures without understanding access patterns
+- Never implement query parsing logic without protocol specifications
+- Never add monitoring/alerting without asking about preferred tools
+- Never assume user authentication or session management details
+
+## Domain-Specific Knowledge
+
+### Core Responsibilities
+- **Event Processing**: Batch processing of query events from external sources
+- **Query Analysis**: Parsing, normalization, and hashing of SQL queries
+- **Cost Estimation**: Multi-tier caching with background EXPLAIN analysis
+- **Quota Tracking**: Real-time quota consumption monitoring per user
+- **Enforcement Decisions**: Determining when and how to limit user access
+
+### PostgreSQL Integration
+- PostgreSQL wire protocol message parsing (Query, Parse, Bind, Execute)
+- EXPLAIN query execution for cost analysis
+- Query normalization (parameter replacement)
+- Connection to user mapping resolution
+
+### External Service Integration
+- Redis caching for query costs and quota state
+- PgBouncer admin API for connection limit enforcement
+- Background worker coordination
+
+## Response Format
+- Provide complete, production-ready code
+- Include comprehensive unit tests
+- Add appropriate comments for complex business logic
+- Use proper Go naming conventions
+- Include error handling and validation
+- Specify file paths for new files
+
+## Questions to Consider
+When implementing quota service features, consider asking about:
+- Quota calculation formulas and time windows
+- Query cost estimation accuracy vs performance trade-offs
+- Cache invalidation and consistency strategies
+- Enforcement escalation policies (warnings vs blocks)
+- Batch processing size and timing configurations
+- Error recovery for external service dependencies
+- Metrics and observability requirements for quota tracking
+
+Remember: This service processes high-volume query events and makes critical enforcement decisions. Accuracy, performance, and reliability are essential. When business rules or integration details are unclear, ask for clarification rather than making assumptions.
