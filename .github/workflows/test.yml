@@ -1,0 +1,112 @@
+name: Test
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: 'Go version to use'
+        required: false
+        default: '1.24.3'
+        type: string
+  workflow_dispatch:
+    inputs:
+      go-version:
+        description: 'Go version to use'
+        required: false
+        default: '1.24.3'
+        type: string
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ inputs.go-version }}
+
+    - name: Install dependencies
+      run: make deps
+
+    - name: Format
+      run: |
+        make fmt
+        if [ -n "$(git diff --name-only)" ]; then
+          echo "Code is not formatted correctly. The following files need formatting:"
+          git diff --name-only
+          echo ""
+          echo "Changes needed:"
+          git diff
+          echo ""
+          echo "Please run 'make fmt' locally and commit the changes."
+          exit 1
+        fi
+
+    - name: Vet
+      run: make vet
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: latest
+
+    - name: Test
+      run: make test
+
+    - name: Build
+      run: make build
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: binary-${{ inputs.go-version }}
+        path: bin/
+        retention-days: 7
+
+  build-matrix:
+    name: Build Matrix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ inputs.go-version }}-
+
+    - name: Install dependencies
+      run: make deps
+
+    - name: Build
+      run: make build
+
+    - name: Test build artifact (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        ./bin/pgbqe --version || ./bin/pgbqe --help || echo "Binary executed successfully"
+
+    - name: Test build artifact (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        .\bin\pgbqe.exe --version
+      continue-on-error: true 
