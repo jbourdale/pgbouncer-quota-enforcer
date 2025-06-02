@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 	"pgbouncer-quota-enforcer/internal/app/domain"
-	"pgbouncer-quota-enforcer/internal/app/infrastructure"
+	"pgbouncer-quota-enforcer/internal/infra/adapters"
 	"pgbouncer-quota-enforcer/pkg/logger"
 )
 
@@ -23,14 +23,14 @@ func NewServerService(config ServerConfig) *ServerService {
 	// Create logger
 	log := logger.NewSimpleLogger()
 
-	// Create byte logger
-	byteLogger := infrastructure.NewStandardByteLogger(log)
+	// Create query logger
+	queryLogger := adapters.NewStandardQueryLogger(log)
 
-	// Create connection handler
-	connHandler := infrastructure.NewLoggingConnectionHandler(byteLogger, log)
+	// Create PostgreSQL connection handler
+	connHandler := adapters.NewPostgreSQLConnectionHandler(queryLogger, log)
 
 	// Create TCP server
-	tcpServer := infrastructure.NewStandardTCPServer(connHandler, log)
+	tcpServer := adapters.NewStandardTCPServer(connHandler, log)
 
 	return &ServerService{
 		tcpServer: tcpServer,

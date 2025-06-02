@@ -23,8 +23,11 @@ type ConnectionHandler interface {
 	HandleConnection(ctx context.Context, conn net.Conn) error
 }
 
-// ByteLogger defines the interface for logging received bytes
-type ByteLogger interface {
-	// LogBytes logs the received bytes with connection information
-	LogBytes(connectionID string, data []byte) error
+// QueryLogger defines the interface for logging SQL queries
+type QueryLogger interface {
+	// LogQuery logs a SQL query with connection information
+	LogQuery(connectionID string, query string) error
+
+	// LogProtocolMessage logs other protocol messages (startup, auth, etc.)
+	LogProtocolMessage(connectionID string, messageType string, details map[string]interface{}) error
 }
