@@ -23,11 +23,14 @@ func NewServerService(config ServerConfig) *ServerService {
 	// Create logger
 	log := logger.NewSimpleLogger()
 
-	// Create query logger
-	queryLogger := adapters.NewStandardQueryLogger(log)
+	// Create query normalizer using pg_query (replaces custom regex-based normalizer)
+	queryNormalizer := adapters.NewPgQueryNormalizer()
 
-	// Create PostgreSQL connection handler
-	connHandler := adapters.NewPostgreSQLConnectionHandler(queryLogger, log)
+	// Create query logger with normalizer
+	queryLogger := adapters.NewStandardQueryLogger(log, queryNormalizer)
+
+	// Create PostgreSQL connection handler with normalizer
+	connHandler := adapters.NewPostgreSQLConnectionHandler(queryLogger, queryNormalizer, log)
 
 	// Create TCP server
 	tcpServer := adapters.NewStandardTCPServer(connHandler, log)

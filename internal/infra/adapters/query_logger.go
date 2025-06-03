@@ -8,13 +8,15 @@ import (
 
 // StandardQueryLogger implements domain.QueryLogger
 type StandardQueryLogger struct {
-	logger logger.Logger
+	logger     logger.Logger
+	normalizer domain.QueryNormalizer
 }
 
 // NewStandardQueryLogger creates a new StandardQueryLogger
-func NewStandardQueryLogger(log logger.Logger) domain.QueryLogger {
+func NewStandardQueryLogger(log logger.Logger, normalizer domain.QueryNormalizer) domain.QueryLogger {
 	return &StandardQueryLogger{
-		logger: log,
+		logger:     log,
+		normalizer: normalizer,
 	}
 }
 
@@ -39,6 +41,21 @@ func (l *StandardQueryLogger) LogQuery(connectionID string, query string) error 
 	connLogger.Info("SQL Query received",
 		"query", cleanQuery,
 		"query_length", len(query),
+	)
+
+	return nil
+}
+
+// LogNormalizedQuery logs a normalized SQL query with hash
+func (l *StandardQueryLogger) LogNormalizedQuery(connectionID string, normalizedQuery domain.NormalizedQuery) error {
+	// Create a logger with connection context
+	connLogger := l.logger.WithField("connection_id", connectionID)
+
+	// Log the normalized query with hash
+	connLogger.Info("Normalized SQL Query",
+		"original_query", normalizedQuery.Original,
+		"normalized_query", normalizedQuery.Normalized,
+		"query_hash", normalizedQuery.Hash.Value(),
 	)
 
 	return nil

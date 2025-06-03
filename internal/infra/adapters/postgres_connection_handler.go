@@ -14,15 +14,17 @@ import (
 // PostgreSQLConnectionHandler implements domain.ConnectionHandler for PostgreSQL protocol
 type PostgreSQLConnectionHandler struct {
 	queryLogger  domain.QueryLogger
+	normalizer   domain.QueryNormalizer
 	logger       logger.Logger
 	readTimeout  time.Duration
 	connectionID int64 // Atomic counter for connection IDs
 }
 
 // NewPostgreSQLConnectionHandler creates a new PostgreSQL connection handler
-func NewPostgreSQLConnectionHandler(queryLogger domain.QueryLogger, log logger.Logger) domain.ConnectionHandler {
+func NewPostgreSQLConnectionHandler(queryLogger domain.QueryLogger, normalizer domain.QueryNormalizer, log logger.Logger) domain.ConnectionHandler {
 	return &PostgreSQLConnectionHandler{
 		queryLogger: queryLogger,
+		normalizer:  normalizer,
 		logger:      log,
 		readTimeout: 30 * time.Second,
 	}
@@ -96,9 +98,23 @@ func (h *PostgreSQLConnectionHandler) HandleConnection(ctx context.Context, conn
 func (h *PostgreSQLConnectionHandler) processMessage(connectionID string, message *ParsedMessage) error {
 	switch message.Type {
 	case "Query", "Parse":
-		// Log SQL queries
+		// Log and normalize SQL queries
 		if message.Query != "" {
-			return h.queryLogger.LogQuery(connectionID, message.Query)
+			// Log the original query
+			if err := h.queryLogger.LogQuery(connectionID, message.Query); err != nil {
+				h.logger.Error("Failed to log query: %v", err)
+			}
+
+			// Normalize the query and log normalized version
+			normalizedQuery, err := h.normalizer.Normalize(message.Query)
+			if err != nil {
+				h.logger.Error("Failed to normalize query: %v", err)
+				// Continue processing even if normalization fails
+			} else {
+				if err := h.queryLogger.LogNormalizedQuery(connectionID, normalizedQuery); err != nil {
+					h.logger.Error("Failed to log normalized query: %v", err)
+				}
+			}
 		}
 	default:
 		// Log other protocol messages
