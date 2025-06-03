@@ -23,11 +23,14 @@ type ConnectionHandler interface {
 	HandleConnection(ctx context.Context, conn net.Conn) error
 }
 
-// QueryLogger defines the interface for logging SQL queries
+// QueryLogger defines the interface for logging SQL queries and protocol messages
 type QueryLogger interface {
 	// LogQuery logs a SQL query with connection information
 	LogQuery(connectionID string, query string) error
 
 	// LogProtocolMessage logs other protocol messages (startup, auth, etc.)
 	LogProtocolMessage(connectionID string, messageType string, details map[string]interface{}) error
+
+	// LogNormalizedQuery logs a normalized SQL query
+	LogNormalizedQuery(connectionID string, normalizedQuery NormalizedQuery) error
 }
