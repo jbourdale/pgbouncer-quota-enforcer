@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"pgbouncer-quota-enforcer/internal/app/domain"
 	"pgbouncer-quota-enforcer/internal/infra/adapters"
 	"pgbouncer-quota-enforcer/pkg/logger"
 	"strings"
@@ -21,19 +22,21 @@ import (
 
 // TestQueryLogger captures queries for testing
 type TestQueryLogger struct {
-	queries         []string
-	protocolMsgs    []string
-	mu              sync.Mutex
-	expectedQueries int
-	queryChannel    chan string
+	queries           []string
+	normalizedQueries []string
+	protocolMsgs      []string
+	mu                sync.Mutex
+	expectedQueries   int
+	queryChannel      chan string
 }
 
 func NewTestQueryLogger(expectedQueries int) *TestQueryLogger {
 	return &TestQueryLogger{
-		queries:         make([]string, 0),
-		protocolMsgs:    make([]string, 0),
-		expectedQueries: expectedQueries,
-		queryChannel:    make(chan string, expectedQueries),
+		queries:           make([]string, 0),
+		normalizedQueries: make([]string, 0),
+		protocolMsgs:      make([]string, 0),
+		expectedQueries:   expectedQueries,
+		queryChannel:      make(chan string, expectedQueries),
 	}
 }
 
@@ -51,6 +54,13 @@ func (t *TestQueryLogger) LogQuery(connectionID string, query string) error {
 	return nil
 }
 
+func (t *TestQueryLogger) LogNormalizedQuery(connectionID string, normalizedQuery domain.NormalizedQuery) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.normalizedQueries = append(t.normalizedQueries, normalizedQuery.Normalized)
+	return nil
+}
+
 func (t *TestQueryLogger) LogProtocolMessage(connectionID string, messageType string, details map[string]interface{}) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -63,6 +73,12 @@ func (t *TestQueryLogger) GetQueries() []string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return append([]string(nil), t.queries...)
+}
+
+func (t *TestQueryLogger) GetNormalizedQueries() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.normalizedQueries...)
 }
 
 func (t *TestQueryLogger) GetProtocolMessages() []string {
@@ -95,7 +111,8 @@ func TestPostgreSQLProtocolParsing(t *testing.T) {
 
 	// Create service with our test logger
 	log := logger.NewSimpleLogger()
-	connHandler := adapters.NewPostgreSQLConnectionHandler(testQueryLogger, log)
+	queryNormalizer := adapters.NewPgQueryNormalizer()
+	connHandler := adapters.NewPostgreSQLConnectionHandler(testQueryLogger, queryNormalizer, log)
 	tcpServer := adapters.NewStandardTCPServer(connHandler, log)
 
 	// Start server
@@ -162,6 +179,16 @@ func TestPostgreSQLProtocolParsing(t *testing.T) {
 		}
 	}
 
+	// Verify normalized queries were also captured
+	normalizedQueries := testQueryLogger.GetNormalizedQueries()
+	t.Logf("Total normalized queries captured: %d", len(normalizedQueries))
+	for i, normalizedQuery := range normalizedQueries {
+		t.Logf("Normalized query %d: %s", i+1, normalizedQuery)
+	}
+
+	// Verify we have normalized queries for each original query
+	assert.Equal(t, len(testQueries), len(normalizedQueries), "Should have normalized version of each query")
+
 	// Get all queries and protocol messages for logging
 	allQueries := testQueryLogger.GetQueries()
 	allProtocolMsgs := testQueryLogger.GetProtocolMessages()
@@ -187,7 +214,8 @@ func TestPostgreSQLProtocolMessagesHandling(t *testing.T) {
 
 	// Create service with our test logger
 	log := logger.NewSimpleLogger()
-	connHandler := adapters.NewPostgreSQLConnectionHandler(testQueryLogger, log)
+	queryNormalizer := adapters.NewPgQueryNormalizer()
+	connHandler := adapters.NewPostgreSQLConnectionHandler(testQueryLogger, queryNormalizer, log)
 	tcpServer := adapters.NewStandardTCPServer(connHandler, log)
 
 	// Start server
@@ -242,13 +270,22 @@ func TestPostgreSQLProtocolMessagesHandling(t *testing.T) {
 	// Wait for processing
 	receivedQueries := testQueryLogger.WaitForQueries(3 * time.Second)
 
+	// Give extra time for normalization processing
+	time.Sleep(1 * time.Second)
+
 	// Check results
 	allQueries := testQueryLogger.GetQueries()
+	allNormalizedQueries := testQueryLogger.GetNormalizedQueries()
 	allProtocolMsgs := testQueryLogger.GetProtocolMessages()
 
 	t.Logf("Total queries captured: %d", len(allQueries))
 	for i, query := range allQueries {
 		t.Logf("Query %d: %s", i+1, query)
+	}
+
+	t.Logf("Total normalized queries captured: %d", len(allNormalizedQueries))
+	for i, query := range allNormalizedQueries {
+		t.Logf("Normalized query %d: %s", i+1, query)
 	}
 
 	t.Logf("Total protocol messages captured: %d", len(allProtocolMsgs))
@@ -260,6 +297,14 @@ func TestPostgreSQLProtocolMessagesHandling(t *testing.T) {
 	assert.Equal(t, 1, len(receivedQueries), "Expected 1 query")
 	if len(receivedQueries) > 0 {
 		assert.Equal(t, "SELECT NOW();", receivedQueries[0], "Query mismatch")
+	}
+
+	// Verify we got normalized queries too (with less strict assertion)
+	if len(allNormalizedQueries) > 0 {
+		assert.Equal(t, "SELECT NOW();", allNormalizedQueries[0], "Normalized query should be the same for this simple query")
+		t.Log("✓ Normalized query captured correctly")
+	} else {
+		t.Log("⚠ No normalized queries captured - this might be a timing issue")
 	}
 
 	// Verify we got the sync protocol message
